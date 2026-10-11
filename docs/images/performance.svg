@@ -1,142 +1,180 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="916" viewBox="0 0 900 916" role="img" aria-label="SimpleLLM vs tuned vLLM 0.31.0 on one H100: faster at decode in every batch and context tested, slower at time to first token, 120b saturated serving and 1,000-way concurrency; accuracy matches OpenAI.">
+<svg xmlns="http://www.w3.org/2000/svg" width="1640" height="923" viewBox="0 0 1640 923" role="img" aria-label="SimpleLLM vs vLLM 0.31.0 on one H100: faster at decode in every batch and context tested, slower at time to first token, 120b saturated serving and 1,000-way concurrency; accuracy matches OpenAI.">
 <style>
-  svg { --bg:#fcfcfb; --border:#e4e3df; --ink:#0b0b0b; --ink2:#52514e; --ink3:#8a8984; --rule:#efeeea; --band:#f5f4f1;
-        --win-bg:#e3f4e3; --win-ink:#0a6b0a; --loss-bg:#fbe5e5; --loss-ink:#a82828; --tie-bg:#efeeea; --tie-ink:#52514e;
-        --us:#2a78d6; --best:rgba(42,120,214,0.09); }
-  @media (prefers-color-scheme: dark) {
-    svg { --bg:#1a1a19; --border:#33332f; --ink:#ffffff; --ink2:#c3c2b7; --ink3:#8f8e86; --rule:#2a2a27; --band:#222220;
-          --win-bg:#173a17; --win-ink:#7fd67f; --loss-bg:#432020; --loss-ink:#f19a9a; --tie-bg:#2e2e2b; --tie-ink:#c3c2b7;
-          --us:#5598e7; --best:rgba(85,152,231,0.16); }
-  }
+  svg { --bg:#fcfcfb; --table:#ffffff; --head:#f5f4f1; --line:#e4e3df; --ink:#0b0b0b; --ink2:#52514e; --ink3:#8a8984; --num:#6b6a65; --best-bg:rgba(42,120,214,0.13); --win:#0a7a0a; --loss:#b42828; --tie:#6b6a65; }
+  @media (prefers-color-scheme: dark) { svg { --bg:#121211; --table:#191918; --head:#1f1f1d; --line:#34342f; --ink:#ffffff; --ink2:#c3c2b7; --ink3:#8f8e86; --num:#a9a89f; --best-bg:rgba(85,152,231,0.22); --win:#6fd46f; --loss:#f08b8b; --tie:#a9a89f; } }
   text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: var(--ink); }
-  .title { font-size: 20px; font-weight: 650; }
-  .sub { font-size: 13px; fill: var(--ink2); }
-  .colh { font-size: 12px; font-weight: 600; fill: var(--ink2); letter-spacing: .04em; text-transform: uppercase; }
-  .us { fill: var(--us); }
-  .group { font-size: 14px; font-weight: 650; }
-  .unit { font-size: 12px; fill: var(--ink3); }
-  .label { font-size: 14px; fill: var(--ink2); }
-  .num { font-size: 14px; font-variant-numeric: tabular-nums; }
-  .numb { font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
-  .foot { font-size: 12px; fill: var(--ink3); }
-  .pill { font-size: 13px; font-weight: 650; }
+  .title { font-size: 40px; font-weight: 700; letter-spacing: -0.01em; }
+  .sub { font-size: 18px; fill: var(--ink3); }
+  .group { font-size: 21px; font-weight: 700; }
+  .unit { font-size: 15px; font-weight: 400; fill: var(--ink3); }
+  .colh { font-size: 13px; font-weight: 650; letter-spacing: .06em; fill: var(--ink3); }
+  .label { font-size: 17px; fill: var(--ink2); }
+  .num { font-size: 19px; font-variant-numeric: tabular-nums; fill: var(--num); }
+  .best { fill: var(--ink); font-weight: 700; }
+  .delta { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .foot { font-size: 15px; fill: var(--ink3); }
 </style>
-<rect x="0.5" y="0.5" width="899" height="915" rx="12" fill="var(--bg)" stroke="var(--border)"/>
-<text x="28" y="40" class="title" text-anchor="start">SimpleLLM vs tuned vLLM 0.31.0</text>
-<text x="28" y="62" class="sub" text-anchor="start">One NVIDIA H100 80GB, official MXFP4 checkpoints, greedy decoding, median of 3 runs in separate processes</text>
-<text x="410" y="86" class="colh us" text-anchor="end">SimpleLLM</text>
-<text x="560" y="86" class="colh" text-anchor="end">vLLM</text>
-<text x="610" y="86" class="colh" text-anchor="start">Difference</text>
-<line x1="28" x2="872" y1="98" y2="98" stroke="var(--border)"/>
-<text x="28" y="124" class="group" text-anchor="start">Decode, 1,000 output tokens</text>
-<text x="872" y="124" class="unit" text-anchor="end">output tok/s</text>
-<text x="40" y="160" class="label" text-anchor="start">gpt-oss-20b, batch 1</text>
-<rect x="290" y="138" width="130" height="34" fill="var(--best)"/>
-<text x="410" y="160" class="numb" text-anchor="end">381</text>
-<text x="560" y="160" class="num" text-anchor="end">331</text>
-<rect x="610" y="144" width="77" height="23" rx="11.5" fill="var(--win-bg)"/>
-<text x="618" y="160" class="pill" style="fill:var(--win-ink)">▲ +15.2%</text>
-<text x="40" y="194" class="label" text-anchor="start">gpt-oss-20b, batch 64</text>
-<rect x="290" y="172" width="130" height="34" fill="var(--best)"/>
-<text x="410" y="194" class="numb" text-anchor="end">9,844</text>
-<text x="560" y="194" class="num" text-anchor="end">8,881</text>
-<rect x="610" y="178" width="77" height="23" rx="11.5" fill="var(--win-bg)"/>
-<text x="618" y="194" class="pill" style="fill:var(--win-ink)">▲ +10.8%</text>
-<text x="40" y="228" class="label" text-anchor="start">gpt-oss-120b, batch 1</text>
-<rect x="290" y="206" width="130" height="34" fill="var(--best)"/>
-<text x="410" y="228" class="numb" text-anchor="end">268</text>
-<text x="560" y="228" class="num" text-anchor="end">233</text>
-<rect x="610" y="212" width="77" height="23" rx="11.5" fill="var(--win-bg)"/>
-<text x="618" y="228" class="pill" style="fill:var(--win-ink)">▲ +14.9%</text>
-<text x="40" y="262" class="label" text-anchor="start">gpt-oss-120b, batch 64</text>
-<rect x="290" y="240" width="130" height="34" fill="var(--best)"/>
-<text x="410" y="262" class="numb" text-anchor="end">4,780</text>
-<text x="560" y="262" class="num" text-anchor="end">4,270</text>
-<rect x="610" y="246" width="77" height="23" rx="11.5" fill="var(--win-bg)"/>
-<text x="618" y="262" class="pill" style="fill:var(--win-ink)">▲ +12.0%</text>
-<line x1="28" x2="872" y1="280" y2="280" stroke="var(--border)"/>
-<text x="28" y="306" class="group" text-anchor="start">Max context, 122k-token prompts, 8,192 output tokens</text>
-<text x="872" y="306" class="unit" text-anchor="end">output tok/s</text>
-<text x="40" y="342" class="label" text-anchor="start">gpt-oss-20b, batch 1</text>
-<rect x="290" y="320" width="130" height="34" fill="var(--best)"/>
-<text x="410" y="342" class="numb" text-anchor="end">266</text>
-<text x="560" y="342" class="num" text-anchor="end">229</text>
-<rect x="610" y="326" width="77" height="23" rx="11.5" fill="var(--win-bg)"/>
-<text x="618" y="342" class="pill" style="fill:var(--win-ink)">▲ +16.2%</text>
-<text x="40" y="376" class="label" text-anchor="start">gpt-oss-20b, batch 14</text>
-<rect x="290" y="354" width="130" height="34" fill="var(--best)"/>
-<text x="410" y="376" class="numb" text-anchor="end">709</text>
-<text x="560" y="376" class="num" text-anchor="end">671</text>
-<rect x="610" y="360" width="69" height="23" rx="11.5" fill="var(--win-bg)"/>
-<text x="618" y="376" class="pill" style="fill:var(--win-ink)">▲ +5.6%</text>
-<text x="40" y="410" class="label" text-anchor="start">gpt-oss-120b, batch 1</text>
-<rect x="290" y="388" width="130" height="34" fill="var(--best)"/>
-<text x="410" y="410" class="numb" text-anchor="end">188</text>
-<text x="560" y="410" class="num" text-anchor="end">164</text>
-<rect x="610" y="394" width="77" height="23" rx="11.5" fill="var(--win-bg)"/>
-<text x="618" y="410" class="pill" style="fill:var(--win-ink)">▲ +14.3%</text>
-<text x="40" y="444" class="label" text-anchor="start">gpt-oss-120b, batch 2</text>
-<rect x="290" y="422" width="130" height="34" fill="var(--best)"/>
-<text x="410" y="444" class="numb" text-anchor="end">268</text>
-<text x="560" y="444" class="num" text-anchor="end">237</text>
-<rect x="610" y="428" width="77" height="23" rx="11.5" fill="var(--win-bg)"/>
-<text x="618" y="444" class="pill" style="fill:var(--win-ink)">▲ +13.4%</text>
-<text x="40" y="478" class="label" text-anchor="start">time to first token, 20b / 120b</text>
-<rect x="440" y="456" width="130" height="34" fill="var(--best)"/>
-<text x="410" y="478" class="num" text-anchor="end">9.6 / 14.6 s</text>
-<text x="560" y="478" class="numb" text-anchor="end">6.1 / 9.0 s</text>
-<rect x="610" y="462" width="115" height="23" rx="11.5" fill="var(--loss-bg)"/>
-<text x="618" y="478" class="pill" style="fill:var(--loss-ink)">▼ 1.6x slower</text>
-<line x1="28" x2="872" y1="496" y2="496" stroke="var(--border)"/>
-<text x="28" y="522" class="group" text-anchor="start">Online serving, 200 chat + coding requests</text>
-<text x="872" y="522" class="unit" text-anchor="end">output tok/s</text>
-<text x="40" y="558" class="label" text-anchor="start">gpt-oss-20b, all sent at once</text>
-<rect x="290" y="536" width="130" height="34" fill="var(--best)"/>
-<text x="410" y="558" class="numb" text-anchor="end">3,665</text>
-<text x="560" y="558" class="num" text-anchor="end">3,190</text>
-<rect x="610" y="542" width="77" height="23" rx="11.5" fill="var(--win-bg)"/>
-<text x="618" y="558" class="pill" style="fill:var(--win-ink)">▲ +14.9%</text>
-<text x="40" y="592" class="label" text-anchor="start">gpt-oss-120b, all sent at once</text>
-<rect x="440" y="570" width="130" height="34" fill="var(--best)"/>
-<text x="410" y="592" class="num" text-anchor="end">1,797</text>
-<text x="560" y="592" class="numb" text-anchor="end">1,899</text>
-<rect x="610" y="576" width="69" height="23" rx="11.5" fill="var(--loss-bg)"/>
-<text x="618" y="592" class="pill" style="fill:var(--loss-ink)">▼ −5.4%</text>
-<text x="40" y="626" class="label" text-anchor="start">gpt-oss-120b, 1 to 2.5 req/s arrivals</text>
-<text x="410" y="626" class="num" text-anchor="end">582 to 1,327</text>
-<text x="560" y="626" class="num" text-anchor="end">577 to 1,291</text>
-<rect x="610" y="610" width="122" height="23" rx="11.5" fill="var(--tie-bg)"/>
-<text x="618" y="626" class="pill" style="fill:var(--tie-ink)">= tie to +2.1%</text>
-<line x1="28" x2="872" y1="644" y2="644" stroke="var(--border)"/>
-<text x="28" y="670" class="group" text-anchor="start">1,000 requests at once, gpt-oss-20b</text>
-<text x="872" y="670" class="unit" text-anchor="end">output tok/s</text>
-<text x="40" y="706" class="label" text-anchor="start">same concurrency (64)</text>
-<rect x="290" y="684" width="130" height="34" fill="var(--best)"/>
-<text x="410" y="706" class="numb" text-anchor="end">7,309</text>
-<text x="560" y="706" class="num" text-anchor="end">5,923</text>
-<rect x="610" y="690" width="77" height="23" rx="11.5" fill="var(--win-bg)"/>
-<text x="618" y="706" class="pill" style="fill:var(--win-ink)">▲ +23.4%</text>
-<text x="40" y="740" class="label" text-anchor="start">each at its max (256 vs 1,024)</text>
-<rect x="440" y="718" width="130" height="34" fill="var(--best)"/>
-<text x="410" y="740" class="num" text-anchor="end">12,682</text>
-<text x="560" y="740" class="numb" text-anchor="end">22,482</text>
-<rect x="610" y="724" width="77" height="23" rx="11.5" fill="var(--loss-bg)"/>
-<text x="618" y="740" class="pill" style="fill:var(--loss-ink)">▼ −43.6%</text>
-<line x1="28" x2="872" y1="758" y2="758" stroke="var(--border)"/>
-<text x="28" y="784" class="group" text-anchor="start">Accuracy, low reasoning effort</text>
-<text x="872" y="784" class="unit" text-anchor="end">OpenAI published in brackets</text>
-<text x="40" y="820" class="label" text-anchor="start">gpt-oss-20b, GPQA / AIME 2025</text>
-<text x="410" y="820" class="num" text-anchor="end">56.3 / 36.3%</text>
-<text x="560" y="820" class="num" text-anchor="end">56.8 / 37.9%</text>
-<rect x="610" y="804" width="191" height="23" rx="11.5" fill="var(--win-bg)"/>
-<text x="618" y="820" class="pill" style="fill:var(--win-ink)">✓ matches (56.8 / 37.1)</text>
-<text x="40" y="854" class="label" text-anchor="start">gpt-oss-120b, GPQA / AIME 2025</text>
-<text x="410" y="854" class="num" text-anchor="end">66.8 / 50.8%</text>
-<text x="560" y="854" class="num" text-anchor="end">65.5 / 51.7%</text>
-<rect x="610" y="838" width="191" height="23" rx="11.5" fill="var(--win-bg)"/>
-<text x="618" y="854" class="pill" style="fill:var(--win-ink)">✓ matches (67.1 / 50.4)</text>
-<text x="28" y="894" class="foot" text-anchor="start">▲ SimpleLLM faster</text>
-<text x="178" y="894" class="foot" text-anchor="start">▼ vLLM faster</text>
-<text x="298" y="894" class="foot" text-anchor="start">= within run-to-run noise (2%)</text>
-<text x="498" y="894" class="foot" text-anchor="start">✓ inside the published 95% interval   • blue = better number</text>
+<rect width="1640" height="923" rx="12" fill="var(--bg)"/>
+<text x="48" y="74" class="title" text-anchor="start">SimpleLLM vs vLLM 0.31.0</text>
+<text x="48" y="110" class="sub" text-anchor="start">gpt-oss-20b and gpt-oss-120b on one H100 80GB · official MXFP4 weights · greedy decoding · median of 3 runs</text>
+<text x="48" y="178" class="group">Decode<tspan class="unit" dx="12">1,000 output tokens, tok/s</tspan></text>
+<clipPath id="c1"><rect x="48" y="192" width="752" height="256" rx="10"/></clipPath>
+<g clip-path="url(#c1)">
+<rect x="48" y="192" width="752" height="256" fill="var(--table)"/>
+<rect x="48" y="192" width="752" height="40" fill="var(--head)"/>
+<rect x="348" y="232" width="144" height="54" fill="var(--best-bg)"/>
+<rect x="348" y="286" width="144" height="54" fill="var(--best-bg)"/>
+<rect x="348" y="340" width="144" height="54" fill="var(--best-bg)"/>
+<rect x="348" y="394" width="144" height="54" fill="var(--best-bg)"/>
+</g>
+<line x1="48" x2="800" y1="232" y2="232" stroke="var(--line)"/>
+<line x1="48" x2="800" y1="286" y2="286" stroke="var(--line)"/>
+<line x1="48" x2="800" y1="340" y2="340" stroke="var(--line)"/>
+<line x1="48" x2="800" y1="394" y2="394" stroke="var(--line)"/>
+<line x1="348" x2="348" y1="192" y2="448" stroke="var(--line)"/>
+<line x1="492" x2="492" y1="192" y2="448" stroke="var(--line)"/>
+<line x1="636" x2="636" y1="192" y2="448" stroke="var(--line)"/>
+<rect x="48.5" y="192.5" width="751" height="255" rx="10" fill="none" stroke="var(--line)"/>
+<text x="476" y="218" class="colh" text-anchor="end">SIMPLELLM</text>
+<text x="620" y="218" class="colh" text-anchor="end">VLLM</text>
+<text x="784" y="218" class="colh" text-anchor="end">DIFFERENCE</text>
+<text x="64" y="267" class="label" text-anchor="start">gpt-oss-20b, batch 1</text>
+<text x="476" y="267" class="num best" text-anchor="end">381</text>
+<text x="620" y="267" class="num" text-anchor="end">331</text>
+<text x="784" y="267" class="delta" text-anchor="end" style="fill:var(--win)">▲ +15.2%</text>
+<text x="64" y="321" class="label" text-anchor="start">gpt-oss-20b, batch 64</text>
+<text x="476" y="321" class="num best" text-anchor="end">9,844</text>
+<text x="620" y="321" class="num" text-anchor="end">8,881</text>
+<text x="784" y="321" class="delta" text-anchor="end" style="fill:var(--win)">▲ +10.8%</text>
+<text x="64" y="375" class="label" text-anchor="start">gpt-oss-120b, batch 1</text>
+<text x="476" y="375" class="num best" text-anchor="end">268</text>
+<text x="620" y="375" class="num" text-anchor="end">233</text>
+<text x="784" y="375" class="delta" text-anchor="end" style="fill:var(--win)">▲ +14.9%</text>
+<text x="64" y="429" class="label" text-anchor="start">gpt-oss-120b, batch 64</text>
+<text x="476" y="429" class="num best" text-anchor="end">4,780</text>
+<text x="620" y="429" class="num" text-anchor="end">4,270</text>
+<text x="784" y="429" class="delta" text-anchor="end" style="fill:var(--win)">▲ +12.0%</text>
+<text x="48" y="504" class="group">Max context<tspan class="unit" dx="12">122k-token prompts, tok/s</tspan></text>
+<clipPath id="c2"><rect x="48" y="518" width="752" height="310" rx="10"/></clipPath>
+<g clip-path="url(#c2)">
+<rect x="48" y="518" width="752" height="310" fill="var(--table)"/>
+<rect x="48" y="518" width="752" height="40" fill="var(--head)"/>
+<rect x="348" y="558" width="144" height="54" fill="var(--best-bg)"/>
+<rect x="348" y="612" width="144" height="54" fill="var(--best-bg)"/>
+<rect x="348" y="666" width="144" height="54" fill="var(--best-bg)"/>
+<rect x="348" y="720" width="144" height="54" fill="var(--best-bg)"/>
+<rect x="492" y="774" width="144" height="54" fill="var(--best-bg)"/>
+</g>
+<line x1="48" x2="800" y1="558" y2="558" stroke="var(--line)"/>
+<line x1="48" x2="800" y1="612" y2="612" stroke="var(--line)"/>
+<line x1="48" x2="800" y1="666" y2="666" stroke="var(--line)"/>
+<line x1="48" x2="800" y1="720" y2="720" stroke="var(--line)"/>
+<line x1="48" x2="800" y1="774" y2="774" stroke="var(--line)"/>
+<line x1="348" x2="348" y1="518" y2="828" stroke="var(--line)"/>
+<line x1="492" x2="492" y1="518" y2="828" stroke="var(--line)"/>
+<line x1="636" x2="636" y1="518" y2="828" stroke="var(--line)"/>
+<rect x="48.5" y="518.5" width="751" height="309" rx="10" fill="none" stroke="var(--line)"/>
+<text x="476" y="544" class="colh" text-anchor="end">SIMPLELLM</text>
+<text x="620" y="544" class="colh" text-anchor="end">VLLM</text>
+<text x="784" y="544" class="colh" text-anchor="end">DIFFERENCE</text>
+<text x="64" y="593" class="label" text-anchor="start">gpt-oss-20b, batch 1</text>
+<text x="476" y="593" class="num best" text-anchor="end">266</text>
+<text x="620" y="593" class="num" text-anchor="end">229</text>
+<text x="784" y="593" class="delta" text-anchor="end" style="fill:var(--win)">▲ +16.2%</text>
+<text x="64" y="647" class="label" text-anchor="start">gpt-oss-20b, batch 14</text>
+<text x="476" y="647" class="num best" text-anchor="end">709</text>
+<text x="620" y="647" class="num" text-anchor="end">671</text>
+<text x="784" y="647" class="delta" text-anchor="end" style="fill:var(--win)">▲ +5.6%</text>
+<text x="64" y="701" class="label" text-anchor="start">gpt-oss-120b, batch 1</text>
+<text x="476" y="701" class="num best" text-anchor="end">188</text>
+<text x="620" y="701" class="num" text-anchor="end">164</text>
+<text x="784" y="701" class="delta" text-anchor="end" style="fill:var(--win)">▲ +14.3%</text>
+<text x="64" y="755" class="label" text-anchor="start">gpt-oss-120b, batch 2</text>
+<text x="476" y="755" class="num best" text-anchor="end">268</text>
+<text x="620" y="755" class="num" text-anchor="end">237</text>
+<text x="784" y="755" class="delta" text-anchor="end" style="fill:var(--win)">▲ +13.4%</text>
+<text x="64" y="809" class="label" text-anchor="start">time to first token, 20b / 120b</text>
+<text x="476" y="809" class="num" text-anchor="end">9.6 / 14.6 s</text>
+<text x="620" y="809" class="num best" text-anchor="end">6.1 / 9.0 s</text>
+<text x="784" y="809" class="delta" text-anchor="end" style="fill:var(--loss)">▼ 1.6x slower</text>
+<text x="840" y="178" class="group">Online serving<tspan class="unit" dx="12">200 chat + coding requests, tok/s</tspan></text>
+<clipPath id="c3"><rect x="840" y="192" width="752" height="202" rx="10"/></clipPath>
+<g clip-path="url(#c3)">
+<rect x="840" y="192" width="752" height="202" fill="var(--table)"/>
+<rect x="840" y="192" width="752" height="40" fill="var(--head)"/>
+<rect x="1140" y="232" width="144" height="54" fill="var(--best-bg)"/>
+<rect x="1284" y="286" width="144" height="54" fill="var(--best-bg)"/>
+</g>
+<line x1="840" x2="1592" y1="232" y2="232" stroke="var(--line)"/>
+<line x1="840" x2="1592" y1="286" y2="286" stroke="var(--line)"/>
+<line x1="840" x2="1592" y1="340" y2="340" stroke="var(--line)"/>
+<line x1="1140" x2="1140" y1="192" y2="394" stroke="var(--line)"/>
+<line x1="1284" x2="1284" y1="192" y2="394" stroke="var(--line)"/>
+<line x1="1428" x2="1428" y1="192" y2="394" stroke="var(--line)"/>
+<rect x="840.5" y="192.5" width="751" height="201" rx="10" fill="none" stroke="var(--line)"/>
+<text x="1268" y="218" class="colh" text-anchor="end">SIMPLELLM</text>
+<text x="1412" y="218" class="colh" text-anchor="end">VLLM</text>
+<text x="1576" y="218" class="colh" text-anchor="end">DIFFERENCE</text>
+<text x="856" y="267" class="label" text-anchor="start">gpt-oss-20b, all at once</text>
+<text x="1268" y="267" class="num best" text-anchor="end">3,665</text>
+<text x="1412" y="267" class="num" text-anchor="end">3,190</text>
+<text x="1576" y="267" class="delta" text-anchor="end" style="fill:var(--win)">▲ +14.9%</text>
+<text x="856" y="321" class="label" text-anchor="start">gpt-oss-120b, all at once</text>
+<text x="1268" y="321" class="num" text-anchor="end">1,797</text>
+<text x="1412" y="321" class="num best" text-anchor="end">1,899</text>
+<text x="1576" y="321" class="delta" text-anchor="end" style="fill:var(--loss)">▼ −5.4%</text>
+<text x="856" y="375" class="label" text-anchor="start">gpt-oss-120b, 1 to 2.5 req/s</text>
+<text x="1268" y="375" class="num" text-anchor="end">582–1,327</text>
+<text x="1412" y="375" class="num" text-anchor="end">577–1,291</text>
+<text x="1576" y="375" class="delta" text-anchor="end" style="fill:var(--tie)">tie to +2.1%</text>
+<text x="840" y="450" class="group">1,000 requests<tspan class="unit" dx="12">gpt-oss-20b, tok/s</tspan></text>
+<clipPath id="c4"><rect x="840" y="464" width="752" height="148" rx="10"/></clipPath>
+<g clip-path="url(#c4)">
+<rect x="840" y="464" width="752" height="148" fill="var(--table)"/>
+<rect x="840" y="464" width="752" height="40" fill="var(--head)"/>
+<rect x="1140" y="504" width="144" height="54" fill="var(--best-bg)"/>
+<rect x="1284" y="558" width="144" height="54" fill="var(--best-bg)"/>
+</g>
+<line x1="840" x2="1592" y1="504" y2="504" stroke="var(--line)"/>
+<line x1="840" x2="1592" y1="558" y2="558" stroke="var(--line)"/>
+<line x1="1140" x2="1140" y1="464" y2="612" stroke="var(--line)"/>
+<line x1="1284" x2="1284" y1="464" y2="612" stroke="var(--line)"/>
+<line x1="1428" x2="1428" y1="464" y2="612" stroke="var(--line)"/>
+<rect x="840.5" y="464.5" width="751" height="147" rx="10" fill="none" stroke="var(--line)"/>
+<text x="1268" y="490" class="colh" text-anchor="end">SIMPLELLM</text>
+<text x="1412" y="490" class="colh" text-anchor="end">VLLM</text>
+<text x="1576" y="490" class="colh" text-anchor="end">DIFFERENCE</text>
+<text x="856" y="539" class="label" text-anchor="start">same concurrency (64)</text>
+<text x="1268" y="539" class="num best" text-anchor="end">7,309</text>
+<text x="1412" y="539" class="num" text-anchor="end">5,923</text>
+<text x="1576" y="539" class="delta" text-anchor="end" style="fill:var(--win)">▲ +23.4%</text>
+<text x="856" y="593" class="label" text-anchor="start">each at its max (256 vs 1,024)</text>
+<text x="1268" y="593" class="num" text-anchor="end">12,682</text>
+<text x="1412" y="593" class="num best" text-anchor="end">22,482</text>
+<text x="1576" y="593" class="delta" text-anchor="end" style="fill:var(--loss)">▼ −43.6%</text>
+<text x="840" y="668" class="group">Accuracy<tspan class="unit" dx="12">GPQA / AIME 2025</tspan></text>
+<clipPath id="c5"><rect x="840" y="682" width="752" height="148" rx="10"/></clipPath>
+<g clip-path="url(#c5)">
+<rect x="840" y="682" width="752" height="148" fill="var(--table)"/>
+<rect x="840" y="682" width="752" height="40" fill="var(--head)"/>
+</g>
+<line x1="840" x2="1592" y1="722" y2="722" stroke="var(--line)"/>
+<line x1="840" x2="1592" y1="776" y2="776" stroke="var(--line)"/>
+<line x1="1140" x2="1140" y1="682" y2="830" stroke="var(--line)"/>
+<line x1="1284" x2="1284" y1="682" y2="830" stroke="var(--line)"/>
+<line x1="1428" x2="1428" y1="682" y2="830" stroke="var(--line)"/>
+<rect x="840.5" y="682.5" width="751" height="147" rx="10" fill="none" stroke="var(--line)"/>
+<text x="1268" y="708" class="colh" text-anchor="end">SIMPLELLM</text>
+<text x="1412" y="708" class="colh" text-anchor="end">VLLM</text>
+<text x="1576" y="708" class="colh" text-anchor="end">DIFFERENCE</text>
+<text x="856" y="757" class="label" text-anchor="start">gpt-oss-20b (OpenAI: 56.8 / 37.1)</text>
+<text x="1268" y="757" class="num" text-anchor="end">56.3 / 36.3</text>
+<text x="1412" y="757" class="num" text-anchor="end">56.8 / 37.9</text>
+<text x="1576" y="757" class="delta" text-anchor="end" style="fill:var(--win)">✓ matches</text>
+<text x="856" y="811" class="label" text-anchor="start">gpt-oss-120b (OpenAI: 67.1 / 50.4)</text>
+<text x="1268" y="811" class="num" text-anchor="end">66.8 / 50.8</text>
+<text x="1412" y="811" class="num" text-anchor="end">65.5 / 51.7</text>
+<text x="1576" y="811" class="delta" text-anchor="end" style="fill:var(--win)">✓ matches</text>
+<text x="48" y="893" class="foot" text-anchor="start" style="white-space:pre">▲ SimpleLLM faster    ▼ vLLM faster    tie = within 2% run-to-run noise    ✓ inside OpenAI&#x27;s published 95% interval    blue = better number</text>
+<text x="1592" y="893" class="foot" text-anchor="end">github.com/naklecha/simple-llm</text>
 </svg>

@@ -7,8 +7,8 @@ It loads the official MXFP4 checkpoints without re-quantizing them, and its GPQA
 Compared with vLLM 0.31.0 tuned for each workload, SimpleLLM decodes 11-15% faster at batch 1 and batch 64 on both models, and 6-16% faster at 131k context. vLLM is faster at time to first token on long prompts, at serving 120b when all requests arrive at once, and at 1,000 concurrent requests; see [What's Next](#whats-next). Method and every run: [docs/performance.md](docs/performance.md).
 
 <p align="center">
-  <img src="docs/images/performance.svg" width="900"
-       alt="SimpleLLM vs tuned vLLM 0.31.0 on one H100. Decode, 1,000 tokens: 20b batch 1 381 vs 331 tok/s (+15.2%), 20b batch 64 9,844 vs 8,881 (+10.8%), 120b batch 1 268 vs 233 (+14.9%), 120b batch 64 4,780 vs 4,270 (+12.0%). Max context: faster decode at every batch, 1.6x slower time to first token. Serving: 20b +14.9%, 120b -5.4% when all requests arrive at once, tie to +2.1% at 1-2.5 req/s. 1,000 requests: +23.4% at equal concurrency, -43.6% at each engine's max. Accuracy matches OpenAI's published GPQA and AIME scores.">
+  <img src="docs/images/performance.svg" width="100%"
+       alt="SimpleLLM vs vLLM 0.31.0 on one H100. Decode, 1,000 tokens: 20b batch 1 381 vs 331 tok/s (+15.2%), 20b batch 64 9,844 vs 8,881 (+10.8%), 120b batch 1 268 vs 233 (+14.9%), 120b batch 64 4,780 vs 4,270 (+12.0%). Max context: faster decode at every batch, 1.6x slower time to first token. Serving: 20b +14.9%, 120b -5.4% when all requests arrive at once, tie to +2.1% at 1-2.5 req/s. 1,000 requests: +23.4% at equal concurrency, -43.6% at each engine's max. Accuracy matches OpenAI's published GPQA and AIME scores.">
 </p>
 
 ## Quickstart
