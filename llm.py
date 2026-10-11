@@ -8,7 +8,7 @@ from collections import deque
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
-from flash_attn import flash_attn_varlen_func
+from flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
 from model import GptOssConfig, GptOssForCausalLM, Tokenizer
 
 
@@ -51,28 +51,34 @@ class LLM:
         self.dtype, self.max_seq_len = dtype, max_seq_len
         self.config = GptOssConfig.from_json(os.path.join(model_path, "config.json"))
 
-        # Compute maximum concurrent sequences based on available GPU memory after model weights.
-        # Formula: KV cache size = 2 (K+V) × num_kv_heads × head_dim × 2 (bytes for bf16) × num_layers × tokens
-        # The 66.5GB is empirically measured model weight footprint on H100 (MXFP4 quantized MoE).
-        # This calculation prevents OOM by limiting batch size based on actual available memory.
-        gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-        kv_bytes_per_token = 2 * self.config.num_key_value_heads * self.config.head_dim * 2 * self.config.num_hidden_layers
-        available_memory = (gpu_memory_gb - 66.5) * (1024**3)
-        self.max_num_seqs = min(max_num_seqs, max(1, int(available_memory / kv_bytes_per_token) // max_seq_len))
-
         # Load model weights and initialize tokenizer. QKV fusion combines 3 projections into 1,
         # reducing kernel launch overhead during decode. KV cache is pre-allocated for all slots.
         self.tokenizer = Tokenizer(model_path)
         self.model = GptOssForCausalLM.from_pretrained(model_path, self.config, self.device, dtype)
         self.model.eval()
         self.model.fuse_qkv()
-        self.model.init_kv_cache(self.max_num_seqs, max_seq_len, self.device, dtype)
+
+        # KV memory (4 GiB kept for activations and CUDA graphs): full-attention layers draw 256-row pages from one shared pool,
+        # sliding layers keep a 256-row ring per slot (window 128 + the new token) plus one scratch ring for long prefills.
+        # If the pool can hold every slot at max_seq_len, slot s owns fixed pages; otherwise a request reserves the pages for
+        # prompt + max_tokens when it is admitted and returns them when it finishes (requests wait in order until pages are free).
+        layers, row = self.model.model.layers, 2 * self.config.num_key_value_heads * self.config.head_dim * 2
+        n_full = sum(not l.attn.is_sliding for l in layers)
+        ring_bytes = (len(layers) - n_full) * row * (max_num_seqs * 256 + (18 * 256 if max_seq_len > 4096 else 0))
+        free = torch.cuda.mem_get_info()[0] - 4 * 1024**3 - ring_bytes
+        self.max_num_seqs, self._seq_pages = max_num_seqs, -(-max_seq_len // 256)
+        self._num_pages = min(int(free // (n_full * row * 256)), max_num_seqs * self._seq_pages)
+        assert self._num_pages >= self._seq_pages, "not enough memory for one max_seq_len sequence"
+        self._static_pages = self._num_pages == max_num_seqs * self._seq_pages
+        self.model.init_kv_cache(self.max_num_seqs, max_seq_len, self._num_pages, self.device, dtype)
+        self._reset_pages()
 
         # CUDA graph storage: one captured graph per batch size. Graphs require static tensor addresses,
         # so we pre-allocate separate input/output buffers for each batch size we capture.
         # The graph pool allows memory sharing between graphs of different batch sizes.
         self._cuda_graphs, self._graph_input_ids, self._graph_positions = {}, {}, {}
-        self._graph_slot_indices, self._graph_outputs = {}, {}
+        self._graph_slot_indices, self._graph_outputs, self._graph_tokens = {}, {}, {}
+        self._fed = None  # (batch_size, slots) whose next inputs the last graph replay already wrote on the GPU
         self._graph_pool = torch.cuda.graph_pool_handle()
 
         # Pre-allocated decode step tensors: reused every decode iteration to avoid allocation overhead.
@@ -91,12 +97,34 @@ class LLM:
         with torch.no_grad():
             dummy = torch.zeros(1, 1, dtype=torch.long, device=self.device)
             self.model.decode(dummy, dummy, torch.zeros(1, dtype=torch.long, device=self.device))
+        # Capture every decode graph now, before any request holds a slot: capture appends K/V at row max_seq_len-4, which
+        # on ring (sliding) layers can fall inside a live window, so capturing during serving is unsafe
+        for b in range(1, self.max_num_seqs + 1): self._capture_cuda_graph(b)
         self.model.clear_all_slots()
         tqdm.write(f"✓ Engine ready | batch_size={self.max_num_seqs} seq={max_seq_len}")
 
     # ═══════════════════════════════════════════════════════════════════════════════
     # CUDA GRAPH CAPTURE: eliminates CPU overhead by replaying pre-recorded GPU operations
     # ═══════════════════════════════════════════════════════════════════════════════
+
+    def _reset_pages(self):
+        """All slots empty: fixed pages per slot, or every page back in the free pool"""
+        if self._static_pages: self.model.block_table.copy_(torch.arange(self._num_pages, dtype=torch.int32).view(self.max_num_seqs, -1))
+        self._free_pages, self._slot_pages = list(range(self._num_pages)), {}
+
+    def _alloc_pages(self, slot: int, tokens: int) -> bool:
+        """Reserve pages for a sequence of up to `tokens` tokens in this slot (no-op with fixed pages); False if the pool is short"""
+        if self._static_pages: return True
+        need = -(-min(tokens, self.max_seq_len) // 256)
+        if need > len(self._free_pages): return False
+        self._slot_pages[slot] = pages = [self._free_pages.pop() for _ in range(need)]
+        self.model.block_table[slot, :need] = torch.tensor(pages, dtype=torch.int32)
+        return True
+
+    def _release(self, slot: int):
+        """Sequence finished: reset its length and return its pages to the pool"""
+        self.model.clear_slot(slot)
+        self._free_pages += self._slot_pages.pop(slot, [])
 
     def _capture_cuda_graph(self, batch_size: int):
         """
@@ -126,7 +154,8 @@ class LLM:
         # Warmup on separate stream: CUDA requires kernels to be "warmed up" before graph capture.
         # Running on a separate stream allows this to happen without blocking the main stream.
         # Three iterations ensures all code paths are exercised and any lazy initialization completes.
-        for layer in self.model.model.layers: layer.attn._cache_seqlens[:batch_size] = 10
+        # Warmup/capture append K/V at the cache tail, never over live prompt positions of slots 0..B-1
+        for layer in self.model.model.layers: layer.attn._cache_seqlens[:batch_size] = self.max_seq_len - 4
         warmup_stream = torch.cuda.Stream()
         warmup_stream.wait_stream(torch.cuda.current_stream())
         with torch.cuda.stream(warmup_stream):
@@ -136,11 +165,15 @@ class LLM:
 
         # Actual graph capture: all GPU operations within this context are recorded, not executed.
         # The pool= argument enables memory sharing between graphs of different batch sizes.
-        for layer in self.model.model.layers: layer.attn._cache_seqlens[:batch_size] = 10
+        for layer in self.model.model.layers: layer.attn._cache_seqlens[:batch_size] = self.max_seq_len - 4
         self._cuda_graphs[batch_size] = torch.cuda.CUDAGraph()
         with torch.cuda.graph(self._cuda_graphs[batch_size], pool=self._graph_pool):
-            self._graph_outputs[batch_size] = self.model.decode(
-                self._graph_input_ids[batch_size], self._graph_positions[batch_size], self._graph_slot_indices[batch_size])
+            logits = self.model.decode(self._graph_input_ids[batch_size], self._graph_positions[batch_size], self._graph_slot_indices[batch_size])
+            # Greedy next token and next inputs stay on the GPU: a replay can follow a replay with no host writes
+            tokens = logits[:, 0].argmax(-1)
+            self._graph_input_ids[batch_size][:, 0].copy_(tokens)
+            self._graph_positions[batch_size].add_(1)
+            self._graph_outputs[batch_size], self._graph_tokens[batch_size] = logits, tokens
 
         # Restore cache state: capture modified cache_seqlens, but we want to preserve real values
         for layer, saved in zip(self.model.model.layers, saved_cache_lengths): layer.attn._cache_seqlens.copy_(saved)
@@ -153,6 +186,45 @@ class LLM:
     # ═══════════════════════════════════════════════════════════════════════════════
     # CORE INFERENCE: prefill processes prompts in parallel, decode generates one token at a time
     # ═══════════════════════════════════════════════════════════════════════════════
+
+    def _prefill_long(self, seq: list[int], slot: int, chunk: int = 4096) -> torch.Tensor:
+        """Prefill one long prompt in chunks: each chunk appends its K/V to the slot and attends causally to everything before it."""
+        for start in range(0, len(seq), chunk):
+            toks = torch.tensor(seq[start:start + chunk], dtype=torch.long, device=self.device)
+            n, positions = len(toks), torch.arange(start, start + len(toks), device=self.device)
+            slot_t = torch.tensor([slot], dtype=torch.int32, device=self.device)
+            hidden, residual = self.model.model.embed_tokens(toks), None
+            for layer in self.model.model.layers:
+                attn = layer.attn
+                if residual is None: residual, hidden = hidden, layer.input_layernorm(hidden.unsqueeze(0)).squeeze(0)
+                else: hidden, residual = (x.squeeze(0) for x in layer.input_layernorm(hidden.unsqueeze(0), residual.unsqueeze(0)))
+                qkv = attn._qkv_proj(hidden)
+                q = qkv[..., :attn._q_size].view(1, n, attn.num_heads, attn.head_dim)
+                k = qkv[..., attn._q_size:attn._q_size + attn._kv_size].view(1, n, attn.num_kv_heads, attn.head_dim)
+                v = qkv[..., attn._q_size + attn._kv_size:].view(1, n, attn.num_kv_heads, attn.head_dim)
+                q, k = attn.rotary_emb(positions.unsqueeze(0), q, k)
+                attn._cache_seqlens[slot] = start
+                window = (attn.sliding_window, 0) if attn.is_sliding else (-1, -1)
+                if attn._ring:  # sliding: the shared scratch ring (256-row pages, logical page b -> b % 18) holds this chunk + window
+                    table = (torch.arange((start + n + 255) // 256, device=self.device) % 18).to(torch.int32).unsqueeze(0)
+                    out, lse = flash_attn_with_kvcache(q, attn._scratch[0].view(-1, 256, attn.num_kv_heads, attn.head_dim), attn._scratch[1].view(-1, 256, attn.num_kv_heads, attn.head_dim),
+                                                       k=k, v=v, cache_seqlens=attn._cache_seqlens[slot:slot + 1], block_table=table,
+                                                       softmax_scale=attn.scaling, causal=True, window_size=window, return_softmax_lse=True)
+                else:  # full attention: the slot's pages in the shared pool
+                    out, lse = flash_attn_with_kvcache(q, attn._kv_cache, attn._v_cache, k=k, v=v, cache_seqlens=attn._cache_seqlens[slot:slot + 1],
+                                                       block_table=attn._table[slot:slot + 1, :(start + n + 255) // 256], softmax_scale=attn.scaling,
+                                                       causal=True, window_size=window, return_softmax_lse=True)
+                attn._cache_seqlens[slot] = start + n
+                sink = torch.sigmoid(lse - attn.sinks.view(1, attn.num_heads, 1)).transpose(1, 2).unsqueeze(-1).to(out.dtype)  # prefill: no clamp
+                hidden = attn.o_proj((out * sink).reshape(n, -1))
+                hidden, residual = (x.squeeze(0) for x in layer.post_attention_layernorm(hidden.unsqueeze(0), residual.unsqueeze(0)))
+                hidden = layer.mlp(hidden.unsqueeze(0)).squeeze(0)
+        p = torch.arange(max(0, len(seq) - 256), len(seq), device=self.device)  # sliding layers: keep the last 256 positions in the slot's ring
+        for layer in self.model.model.layers:
+            if layer.attn._ring:
+                for cache, scratch in zip((layer.attn._kv_cache, layer.attn._v_cache), layer.attn._scratch): cache[slot, p % 256] = scratch[p % (18 * 256)]
+        hidden, _ = self.model.model.norm(hidden.unsqueeze(0), residual.unsqueeze(0))
+        return self.model.lm_head(hidden.squeeze(0)[-1:])
 
     def _prefill(self, sequences: list[list[int]], slot_indices: list[int]) -> torch.Tensor:
         """
@@ -168,6 +240,7 @@ class LLM:
         Returns:
             Logits tensor [num_sequences, vocab_size] for the last token of each sequence
         """
+        if len(sequences) == 1 and len(sequences[0]) > 4096: return self._prefill_long(sequences[0], slot_indices[0])
         num_seqs, seq_lens = len(sequences), [len(s) for s in sequences]
         total_tokens, max_seq_len = sum(seq_lens), max(seq_lens)
 
@@ -178,11 +251,14 @@ class LLM:
         cu_seqlens = torch.zeros(num_seqs + 1, dtype=torch.int32, device=self.device)
         cu_seqlens[1:] = seq_lens_t.cumsum(0)
 
-        # Build scatter indices for KV cache population. Each slot has max_seq_len positions,
-        # so token at position P in slot S goes to index S*max_seq_len + P in the flattened cache.
+        # Cache write indices. Full-attention layers: position P of slot S goes to row P % 256 of page block_table[S, P // 256] in the
+        # flattened pool. Sliding layers: only the last 256 positions are kept, position P -> row S * 256 + P % 256 of the rings.
         positions = torch.cat([torch.arange(l, device=self.device) for l in seq_lens])
         slot_indices_t = torch.tensor(slot_indices, dtype=torch.long, device=self.device)
-        scatter_indices = torch.repeat_interleave(slot_indices_t * self.max_seq_len, seq_lens_t.long()) + positions
+        slot_rep = torch.repeat_interleave(slot_indices_t, seq_lens_t.long())
+        page_idx = self.model.block_table[slot_rep, positions // 256].long() * 256 + positions % 256
+        keep = positions >= torch.repeat_interleave(seq_lens_t.long(), seq_lens_t.long()) - 256
+        ring_idx, ring_src = slot_rep[keep] * 256 + positions[keep] % 256, keep.nonzero().squeeze(1)
 
         # Forward through transformer: embedding lookup, then N layers of attention + MLP
         hidden = self.model.model.embed_tokens(flat_tokens)
@@ -208,12 +284,11 @@ class LLM:
             # Rotary position embeddings: encode position information directly into Q and K vectors
             q, k = (x.squeeze(0) for x in attn.rotary_emb(positions.unsqueeze(0), q.unsqueeze(0), k.unsqueeze(0)))
 
-            # Populate KV cache: scatter keys and values to their slot positions.
-            # The cache is laid out as [num_slots * max_seq_len, num_kv_heads, head_dim] when flattened.
+            # Populate KV cache: scatter keys and values to their cache rows (flattened [rows, num_kv_heads, head_dim])
             kv_flat = attn._kv_cache.view(-1, attn.num_kv_heads, attn.head_dim)
             v_flat = attn._v_cache.view(-1, attn.num_kv_heads, attn.head_dim)
-            kv_flat.index_copy_(0, scatter_indices, k)
-            v_flat.index_copy_(0, scatter_indices, v)
+            if attn._ring: kv_flat.index_copy_(0, ring_idx, k[ring_src]); v_flat.index_copy_(0, ring_idx, v[ring_src])
+            else: kv_flat.index_copy_(0, page_idx, k); v_flat.index_copy_(0, page_idx, v)
             attn._cache_seqlens.index_copy_(0, slot_indices_t, seq_lens_t)
 
             # Flash attention with sink correction and window_size for sliding attention layers
@@ -244,10 +319,11 @@ class LLM:
         """
         batch_size = len(slot_indices)
 
-        # Fast path: CUDA graph for contiguous slots (common case before any sequence completes)
-        if slot_indices == list(range(batch_size)) and batch_size in self._cuda_graphs:
+        # Fast path: CUDA graph for any slot set (slot indices are a graph input)
+        if batch_size in self._cuda_graphs:
             self._graph_input_ids[batch_size].copy_(input_ids)
             self._graph_positions[batch_size].copy_(positions)
+            self._graph_slot_indices[batch_size].copy_(torch.tensor(slot_indices), non_blocking=True)
             self._cuda_graphs[batch_size].replay()
             return self._graph_outputs[batch_size]
 
@@ -372,6 +448,7 @@ class LLM:
         new_work = []
         for req in list(pending_requests):
             while req.pending_indices and free_slots:
+                if not self._alloc_pages(free_slots[0], len(req.token_ids[req.pending_indices[0]]) + req.max_tokens): return new_work  # wait for pages
                 new_work.append((req, req.pending_indices.pop(0), free_slots.pop(0)))
             if not req.pending_indices:
                 pending_requests.remove(req)
@@ -392,7 +469,7 @@ class LLM:
         if 1 >= req.max_tokens or (not req.ignore_eos and tok in self.tokenizer.eos_token_ids):
             reasoning, final, raw = self.tokenizer.parse_harmony_output([tok])
             req.results[prompt_idx] = GenerationOutput(final or self.tokenizer.decode([tok]), [tok], reasoning, raw)
-            self.model.clear_slot(slot)
+            self._release(slot)
             # Keep free_slots sorted so pop(0) returns lowest slot. CUDA graphs require
             # contiguous slots [0,1,2..N-1], so reusing low slots maximizes graph hits.
             bisect.insort(free_slots, slot)
@@ -436,7 +513,7 @@ class LLM:
         reasoning, final, raw = self.tokenizer.parse_harmony_output(tokens)
         req.results[prompt_idx] = GenerationOutput(final or self.tokenizer.decode(tokens), tokens, reasoning, raw)
         del active_generations[slot]
-        self.model.clear_slot(slot)
+        self._release(slot)
         # Keep free_slots sorted so pop(0) returns lowest slot. CUDA graphs require
         # contiguous slots [0,1,2..N-1], so reusing low slots maximizes graph hits.
         bisect.insort(free_slots, slot)
@@ -476,7 +553,7 @@ class LLM:
         total_prompts = 0
         decode_times = deque(maxlen=16)
         pbar = None
-        self.model.clear_all_slots()
+        self.model.clear_all_slots(); self._reset_pages()
 
         while self._loop_running or pending_requests or active_generations:
             # Phase 1 & 2: Drain incoming requests and assign pending prompts to free slots
@@ -518,6 +595,7 @@ class LLM:
         if chunk: chunks.append(chunk)
 
         # Process each chunk: prefill, sample first token, check for immediate completion
+        self._fed = None
         for chunk in chunks:
             seqs, slots = [r.token_ids[i] for r, i, _ in chunk], [s for _, _, s in chunk]
             sampled = self._sample_tokens(self._prefill(seqs, slots), chunk[0][0].temperature)
@@ -534,24 +612,32 @@ class LLM:
         """
         slots = list(active_generations.keys())
         batch_size = len(slots)
-
-        # Prepare decode inputs: last generated token and current position for each sequence
-        input_ids = self._decode_input_ids[:batch_size]
-        positions = self._decode_positions[:batch_size]
-        for i, slot in enumerate(slots):
-            req, prompt_idx, tokens, pos, _ = active_generations[slot]
-            input_ids[i, 0] = tokens[-1]
-            positions[i, 0] = pos
-
-        # Ensure CUDA graph is captured for this batch size (lazy capture on first use)
         self._ensure_graph_captured(batch_size)
         temperature = active_generations[slots[0]][0].temperature
+        graph = batch_size in self._cuda_graphs  # any slot set: slot indices are a graph input (copied below when they change)
 
-        # Execute decode and measure latency for throughput calculation
         t0 = time.perf_counter()
-        logits = self._decode_step(input_ids, positions, slots)
-        sampled = self._sample_tokens(logits[:, 0], temperature)
+        if graph and temperature == 0:
+            # Greedy graph path: inputs come from the previous replay unless the batch changed (one H2D copy each)
+            if self._fed != (batch_size, tuple(slots)):
+                last = [active_generations[s] for s in slots]
+                self._graph_input_ids[batch_size].copy_(torch.tensor([[g[2][-1]] for g in last]), non_blocking=True)
+                self._graph_positions[batch_size].copy_(torch.tensor([[g[3]] for g in last]), non_blocking=True)
+                self._graph_slot_indices[batch_size].copy_(torch.tensor(slots), non_blocking=True)
+            self._cuda_graphs[batch_size].replay()
+            sampled = self._graph_tokens[batch_size].tolist()
+        else:
+            # Prepare decode inputs: last generated token and current position for each sequence
+            input_ids = self._decode_input_ids[:batch_size]
+            positions = self._decode_positions[:batch_size]
+            for i, slot in enumerate(slots):
+                req, prompt_idx, tokens, pos, _ = active_generations[slot]
+                input_ids[i, 0] = tokens[-1]
+                positions[i, 0] = pos
+            logits = self._decode_step(input_ids, positions, slots)
+            sampled = self._sample_tokens(logits[:, 0], temperature)
         decode_times.append((batch_size, time.perf_counter() - t0))
+        self._fed = (batch_size, tuple(slots)) if graph and temperature == 0 else None
 
         # Update progress bar with rolling average throughput
         if pbar and decode_times:
@@ -560,4 +646,4 @@ class LLM:
 
         # Process each generated token: update state, check completion, release finished slots
         for i, slot in enumerate(slots):
-            self._process_generated_token(slot, sampled[i], active_generations, free_slots, end_token_id, pbar)
+            if self._process_generated_token(slot, sampled[i], active_generations, free_slots, end_token_id, pbar): self._fed = None

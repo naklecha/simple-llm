@@ -6,10 +6,7 @@ import torch, torch.nn as nn
 from tqdm import tqdm
 from flash_attn import flash_attn_with_kvcache
 from safetensors import safe_open
-from kernels.norm import rms_norm, fused_add_rms_norm
-from kernels.rope import fused_rope
-from kernels.moe import swizzle_mxfp4, moe_forward
-from kernels.triton_kernels.matmul_ogs import PrecisionConfig
+from kernels import rms_norm, fused_add_rms_norm, fused_rope, prep_moe, moe_grouped, decode_attention
 
 
 @dataclass
@@ -73,8 +70,8 @@ class RotaryEmbedding(nn.Module):
   def forward(self, positions, query, key):
     self._build_cache(query.device, query.dtype)
     
-    # Decode path (seq_len=1): fused Triton kernel applies RoPE in-place for Q and K in single pass
-    if query.shape[1] == 1 and query.is_contiguous() and key.is_contiguous():
+    # Decode path (seq_len=1, any batch): fused Triton kernel rotates Q and K (strided views into QKV) in one pass
+    if query.shape[1] == 1:
       return fused_rope(positions.unsqueeze(0) if positions.dim() == 1 else positions, query, key, self._cos, self._sin)
     
     # Prefill path: standard PyTorch rotation using cached cos/sin tables
@@ -110,8 +107,10 @@ class Attention(nn.Module):
     # Learned attention sinks: per-head bias via sigmoid that prevents attention collapse on certain patterns
     self.sinks = nn.Parameter(torch.zeros(self.num_heads))
     
-    # Slot-based KV cache [num_slots, max_seq_len, num_kv_heads, head_dim] initialized by Engine.init_kv_cache
+    # Slot-based KV cache [num_slots, rows, num_kv_heads, head_dim] (rows = max_seq_len, or a ring for sliding layers)
     self._kv_cache = self._v_cache = self._cache_seqlens = None
+    self._ring = 0  # > 0: sliding layer stores position p in cache row p % _ring
+    self._table = self._scratch = None  # full-attention layers: shared block table into a page pool; sliding: scratch ring for long prefills
 
   def fuse_qkv(self):
     """Combine Q, K, V into single fused projection, reducing 3 matmuls to 1"""
@@ -141,25 +140,13 @@ class FusedMoE(nn.Module):
     self.hidden_size, self.intermediate_size, self.top_k = config.hidden_size, config.intermediate_size, config.num_experts_per_tok
     self.router = nn.Linear(self.hidden_size, config.num_local_experts, bias=True)
     
-    # MXFP4 weights in swizzled format for Triton kernel compatibility (set during from_pretrained)
-    self._w1 = self._w2 = self._w1_precision = self._w2_precision = self._w1_bias = self._w2_bias = None
-    
-    # Pre-allocated intermediate buffers to avoid allocations during forward (resized if batch grows)
-    self._cache = self._out_cache = None; self._max_m = 0
+    # MXFP4 weights in tensor-core fragment order (set during from_pretrained by kernels.prep_moe)
+    self._w1 = self._w2 = self._w1_bias = self._w2_bias = None
 
   def forward(self, hidden):
     batch, seq_len, hidden_dim = hidden.shape
-    tokens = batch * seq_len
-    flat = hidden.view(tokens, hidden_dim)
-    
-    # Lazy allocation on first forward or when batch exceeds previous max
-    if self._cache is None or self._max_m < tokens:
-      self._cache = torch.empty((1, tokens * self.top_k, self.intermediate_size), device=flat.device, dtype=flat.dtype)
-      self._out_cache = torch.empty((1, tokens, hidden_dim), device=flat.device, dtype=flat.dtype)
-      self._max_m = tokens
-    
-    # Triton kernel handles routing, MXFP4 dequant, expert forward, and weighted combination
-    return moe_forward(flat, self._w1, self._w2, self.router(flat), self.top_k, True, self._w1_bias, self._w2_bias, self._w1_precision, self._w2_precision, inter_cache=self._cache, out_cache=self._out_cache).view(batch, seq_len, hidden_dim)
+    flat = hidden.view(batch * seq_len, hidden_dim)
+    return moe_grouped(flat, *self._w1, self._w1_bias, *self._w2, self._w2_bias, self.router(flat), self.top_k).view(batch, seq_len, hidden_dim)
 
 
 class TransformerBlock(nn.Module):
@@ -209,18 +196,10 @@ class GptOssForCausalLM(nn.Module):
       value = qkv[..., attn._q_size+attn._kv_size:].view(batch_size, 1, attn.num_kv_heads, attn.head_dim)
       query, key = attn.rotary_emb(positions, query, key)
       
-      # Attends to cached KV (with window_size for sliding attention layers)
-      # window_size=(left, right): (128, 0) = attend to previous 128 tokens only
-      window = (attn.sliding_window, 0) if attn.is_sliding else (-1, -1)
-      attn_out, lse = flash_attn_with_kvcache(query, attn._kv_cache, attn._v_cache, k=key, v=value,
-        cache_seqlens=attn._cache_seqlens[slot_indices].int(), cache_batch_idx=slot_indices.int(),
-        softmax_scale=attn.scaling, causal=False, window_size=window, return_softmax_lse=True)
-      attn._cache_seqlens[slot_indices] += 1
-      
-      # Sink correction with clamping to prevent sigmoid saturation at long sequences
-      clamped = torch.clamp(lse - attn.sinks.view(1, attn.num_heads, 1), -5, 5)
-      sink_factor = torch.sigmoid(clamped).transpose(1,2).unsqueeze(-1).to(attn_out.dtype)
-      hidden = attn.o_proj((attn_out * sink_factor).reshape(batch_size, 1, -1))
+      # Attends to cached KV (sliding layers: previous 128 tokens), appends K/V, applies the sinks (kernels.decode_attention)
+      attn_out = decode_attention(query, key, value, attn._kv_cache, attn._v_cache, attn._cache_seqlens, slot_indices, attn.sinks,
+                                  attn.scaling, attn.sliding_window if attn.is_sliding else 0, attn._ring, attn._table)
+      hidden = attn.o_proj(attn_out)
       
       hidden, residual = layer.post_attention_layernorm(hidden, residual)
       hidden = layer.mlp(hidden)
@@ -228,12 +207,20 @@ class GptOssForCausalLM(nn.Module):
     hidden, _ = self.model.norm(hidden, residual)
     return self.lm_head(hidden)
 
-  def init_kv_cache(self, num_slots: int, max_seq_len: int, device, dtype):
-    """Allocate slot-based KV cache where each slot holds one sequence's cached keys/values"""
+  def init_kv_cache(self, num_slots: int, max_seq_len: int, num_pages: int, device, dtype, page: int = 256, ring: int = 256):
+    """Full-attention layers share a pool of `page`-row pages addressed through one per-slot block table (filled by llm.py);
+    sliding layers keep a `ring`-row ring per slot (position p -> row p % ring; ring > window), plus one shared scratch ring
+    (one 4096-token prefill chunk + window, 256-row pages) used while a long prompt is prefilled"""
+    self.block_table = torch.zeros(num_slots, -(-max_seq_len // page), dtype=torch.int32, device=device)
     for layer in self.model.layers:
-      attn = layer.attn
-      attn._kv_cache = torch.zeros(num_slots, max_seq_len, attn.num_kv_heads, attn.head_dim, device=device, dtype=dtype)
-      attn._v_cache = torch.zeros(num_slots, max_seq_len, attn.num_kv_heads, attn.head_dim, device=device, dtype=dtype)
+      attn, hk, d = layer.attn, layer.attn.num_kv_heads, layer.attn.head_dim
+      if attn.is_sliding:
+        assert ring > attn.sliding_window
+        attn._ring, attn._table, shape = ring, None, (num_slots, ring, hk, d)
+        if max_seq_len > 4096: attn._scratch = [torch.zeros(18 * 256, hk, d, device=device, dtype=dtype) for _ in range(2)]
+      else: attn._ring, attn._table, shape = 0, self.block_table, (num_pages, page, hk, d)
+      attn._kv_cache = torch.zeros(shape, device=device, dtype=dtype)
+      attn._v_cache = torch.zeros(shape, device=device, dtype=dtype)
       attn._cache_seqlens = torch.zeros(num_slots, dtype=torch.int32, device=device)
 
   def clear_slot(self, idx: int):
@@ -304,12 +291,8 @@ class GptOssForCausalLM(nn.Module):
         w2_blocks = weights['down_proj_blocks'].view(num_experts, hidden, -1).contiguous()
         w2_scales = weights['down_proj_scales'].view(num_experts, hidden, -1).contiguous()
         
-        # Reorders weight blocks for coalesced memory access in Triton
-        w1_swz, _, s1_swz = swizzle_mxfp4(w1_blocks, w1_scales, num_warps=8)
-        w2_swz, _, s2_swz = swizzle_mxfp4(w2_blocks, w2_scales, num_warps=8)
-        
-        moe._w1, moe._w2 = w1_swz, w2_swz
-        moe._w1_precision, moe._w2_precision = PrecisionConfig(weight_scale=s1_swz), PrecisionConfig(weight_scale=s2_swz)
+        # Rearrange once at load time into the layout the grouped MoE kernel streams (kernels.prep_moe)
+        moe._w1, moe._w2 = prep_moe(w1_blocks, w1_scales), prep_moe(w2_blocks, w2_scales)
         if 'gate_up_proj_bias' in weights: moe._w1_bias = weights['gate_up_proj_bias'].to(torch.float32)
         if 'down_proj_bias' in weights: moe._w2_bias = weights['down_proj_bias'].to(torch.float32)
       
