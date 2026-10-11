@@ -1,6 +1,6 @@
 # SimpleLLM
 
-SimpleLLM is an inference engine for OpenAI's gpt-oss-20b and gpt-oss-120b on a single NVIDIA H100. It is 1,351 lines of Python: `llm.py` (649 lines) is the engine, `model/` (405) is the model and tokenizer, and `kernels.py` (297) holds every GPU kernel, written in Triton. Earlier versions of this repo used a 44-file, 5,762-line copy of OpenAI's `triton_kernels` library instead.
+SimpleLLM is an inference engine for OpenAI's gpt-oss-20b and gpt-oss-120b on a single NVIDIA H100. It is 1,351 lines of Python: `llm.py` (649 lines) is the engine, `model/` (405) is the model and tokenizer, and `kernels.py` (297) holds every GPU kernel, written in Triton.
 
 It loads the official MXFP4 checkpoints without re-quantizing them, and its GPQA-Diamond and AIME 2025 scores match OpenAI's published numbers.
 
